@@ -10,8 +10,8 @@ pygame.init()
 pygame.mixer.init()
 
 # Screen dimensions
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption('Ocean Explorer')
 
@@ -20,6 +20,17 @@ BLUE = (0, 119, 190)
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 YELLOW = (255, 255, 0)
+
+RAINBOW_COLORS = [
+    (255, 0, 0),    # Red
+    (255, 127, 0),  # Orange
+    (255, 255, 0),  # Yellow
+    (0, 255, 0),    # Green
+    (0, 0, 255),    # Blue
+    (75, 0, 130),   # Indigo
+    (148, 0, 211)   # Violet
+]
+BUBBLE_COLORS = [(173, 216, 230), (135, 206, 235), (0, 191, 255)]  # Light blue variations
 
 # Add a global debug flag to control console output
 DEBUG_MODE = False
@@ -117,12 +128,12 @@ def create_default_background():
 
 # Game assets
 try:
-    player_img = load_image('player.png', 0.2)
-    dolphin_img = load_image('dolphin.png', 0.3)
-    turtle_img = load_image('turtle.png', 0.2)
-    starfish_img = load_image('starfish.png', 0.15)
-    octopus_img = load_image('octopus.png', 0.25)
-    fish_img = load_image('fish.png', 0.15)
+    player_img = load_image('player.png', 0.15)  # Reduced from 0.2
+    dolphin_img = load_image('dolphin.png', 0.2)  # Reduced from 0.3
+    turtle_img = load_image('turtle.png', 0.15)   # Reduced from 0.2
+    starfish_img = load_image('starfish.png', 0.1) # Reduced from 0.15
+    octopus_img = load_image('octopus.png', 0.2)  # Reduced from 0.25
+    fish_img = load_image('fish.png', 0.1)        # Reduced from 0.15
     bubble_img = load_image('bubble.png', 0.1)
     treasure_img = load_image('treasure.png', 0.2)
     seashell_img = load_image('seashell.png', 0.15)
@@ -168,6 +179,7 @@ except:
 # Font
 font = pygame.font.SysFont('Arial', 24)
 large_font = pygame.font.SysFont('Arial', 32)
+small_font = pygame.font.SysFont('Arial', 18)
 
 # Game states
 EXPLORE = 0
@@ -206,22 +218,132 @@ class Player:
         pygame.draw.circle(screen, (0, 255, 0), (self.x, self.y), 5)
 
 class Creature:
-    def __init__(self, x, y, image, name, question, answers, correct_answer):
+    def __init__(self, x, y, image, name, questions_data):
         self.x = x
         self.y = y
         self.image = image
         self.name = name
-        self.question = question
-        self.answers = answers
-        self.correct_answer = correct_answer
+        self.questions = questions_data
+        self.current_question_index = 0
         self.rect = self.image.get_rect()
-        self.rect.center = (self.x, self.y)  # Make sure center is set properly
-        self.visited = False
-    
-    def draw(self):
-        # Make sure the rect is at the right position before drawing
         self.rect.center = (self.x, self.y)
-        screen.blit(self.image, self.rect)
+        self.visited = False
+        self.discovered = False
+        self.is_hovered = False
+        self.proximity_indicator = 0  # For pulsing effect
+        self.in_range = False
+        self.interaction_radius = 150
+        self.can_interact = False
+        
+        # Swimming behavior attributes
+        self.original_x = x
+        self.original_y = y
+        self.swim_pattern = random.choice(['circle', 'figure8', 'zigzag', 'random'])
+        self.movement_speed = random.uniform(0.3, 1.5)
+        self.movement_radius = random.randint(30, 100)
+        self.movement_time = random.uniform(0, math.pi * 2)  # Random start phase
+        self.next_direction_change = 0
+        self.current_direction = random.uniform(0, math.pi * 2)
+        self.target_x = self.x
+        self.target_y = self.y
+
+    def get_next_question(self):
+        """Get the next question from the questions list"""
+        if self.current_question_index < len(self.questions):
+            question = self.questions[self.current_question_index]
+            self.current_question_index += 1
+            return question
+        return None
+
+    def update(self, player_pos, mouse_pos):
+        if not self.visited:
+            current_time = pygame.time.get_ticks() * 0.001  # Convert to seconds
+            self.movement_time += self.movement_speed * 0.02
+
+            # Apply different swimming patterns
+            if self.swim_pattern == 'circle':
+                # Circular motion
+                self.x = self.original_x + math.cos(self.movement_time) * self.movement_radius
+                self.y = self.original_y + math.sin(self.movement_time) * self.movement_radius
+                self.flip_image = math.cos(self.movement_time) < 0
+                
+            elif self.swim_pattern == 'figure8':
+                # Figure-8 pattern
+                scale_x = self.movement_radius * 1.5
+                scale_y = self.movement_radius
+                self.x = self.original_x + math.sin(self.movement_time) * scale_x
+                self.y = self.original_y + math.sin(self.movement_time * 2) * scale_y
+                self.flip_image = math.cos(self.movement_time) < 0
+                
+            elif self.swim_pattern == 'zigzag':
+                # Zigzag pattern
+                self.x = self.original_x + math.sin(self.movement_time * 2) * self.movement_radius
+                self.y = self.original_y + self.movement_time % (self.movement_radius * 2) - self.movement_radius
+                self.flip_image = math.sin(self.movement_time * 2) < 0
+                
+            elif self.swim_pattern == 'random':
+                # Random wandering
+                if current_time > self.next_direction_change:
+                    self.current_direction = random.uniform(0, math.pi * 2)
+                    self.next_direction_change = current_time + random.uniform(1, 3)
+                    self.target_x = self.original_x + random.randint(-self.movement_radius, self.movement_radius)
+                    self.target_y = self.original_y + random.randint(-self.movement_radius, self.movement_radius)
+                
+                # Move towards target
+                dx = self.target_x - self.x
+                dy = self.target_y - self.y
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist > 0:
+                    self.x += (dx/dist) * self.movement_speed
+                    self.y += (dy/dist) * self.movement_speed
+                self.flip_image = dx < 0
+
+            # Keep within bounds of original position
+            max_distance = self.movement_radius * 1.5
+            dx = self.x - self.original_x
+            dy = self.y - self.original_y
+            distance = math.sqrt(dx*dx + dy*dy)
+            if distance > max_distance:
+                angle = math.atan2(dy, dx)
+                self.x = self.original_x + math.cos(angle) * max_distance
+                self.y = self.original_y + math.sin(angle) * max_distance
+
+            # Update interaction checks
+            player_distance = math.sqrt(
+                (player_pos[0] - self.x)**2 + 
+                (player_pos[1] - self.y)**2
+            )
+            self.can_interact = player_distance < self.interaction_radius
+            
+            if self.can_interact:
+                mouse_distance = math.sqrt(
+                    (mouse_pos[0] - self.x)**2 + 
+                    (mouse_pos[1] - self.y)**2
+                )
+                self.is_hovered = mouse_distance < 50
+            else:
+                self.is_hovered = False
+
+    def draw(self):
+        self.rect.center = (self.x, self.y)
+        # Flip image if needed
+        if self.flip_image:
+            flipped_image = pygame.transform.flip(self.image, True, False)
+            screen.blit(flipped_image, self.rect)
+        else:
+            screen.blit(self.image, self.rect)
+        
+        # Show interaction prompt only when in range
+        if self.in_range and self.is_hovered and not self.visited:
+            text = "Click to interact!"  # Changed from "Press SPACE"
+            text_surface = font.render(text, True, WHITE)
+            text_rect = text_surface.get_rect(center=(self.x, self.y - 70))
+            screen.blit(text_surface, text_rect)
+        
+        # Only show name if discovered
+        elif self.discovered:
+            name_text = font.render(self.name, True, WHITE)
+            screen.blit(name_text, (self.x - name_text.get_width() // 2, self.y - 50))
 
 class Button:
     def __init__(self, x, y, width, height, text, color):
@@ -249,42 +371,109 @@ class Button:
             return True
         return False
 
+class AnimatedButton(Button):
+    def __init__(self, x, y, width, height, text, color):
+        super().__init__(x, y, width, height, text, color)
+        self.original_y = y
+        self.bounce_offset = 0
+        self.bounce_speed = 0.002  # Reduced from previous value
+        self.selected = False
+        self.correct = False
+        self.wrong = False
+        
+    def update(self):
+        # Make the bounce much gentler
+        if not self.selected:
+            self.bounce_offset = math.sin(pygame.time.get_ticks() * self.bounce_speed) * 2  # Reduced amplitude
+            self.rect.y = self.original_y + self.bounce_offset
+            
+        # Update hover state
+        mouse_pos = pygame.mouse.get_pos()
+        self.is_hovered = self.rect.collidepoint(mouse_pos)
+
+    def draw(self):
+        # Draw fun shadow
+        shadow_rect = self.rect.copy()
+        shadow_rect.y += 5
+        pygame.draw.rect(screen, (0, 0, 0, 128), shadow_rect, border_radius=15)
+        
+        # Draw main button with gradient
+        color = self.color
+        if self.correct:
+            color = (100, 255, 100)  # Green for correct
+        elif self.wrong:
+            color = (255, 100, 100)  # Red for wrong
+        elif self.is_hovered:
+            # Lighten the color when hovered
+            color = tuple(min(c + 30, 255) for c in self.color)
+            
+        pygame.draw.rect(screen, color, self.rect, border_radius=15)
+        
+        # Draw text with better contrast
+        text_surface = font.render(self.text, True, BLACK)
+        text_rect = text_surface.get_rect(center=self.rect.center)
+        
+        # Add subtle text shadow for better readability
+        shadow_surface = font.render(self.text, True, (100, 100, 100))
+        shadow_rect = text_rect.copy()
+        shadow_rect.x += 1
+        shadow_rect.y += 1
+        screen.blit(shadow_surface, shadow_rect)
+        screen.blit(text_surface, text_rect)
+        
+        # Add sparkles if correct
+        if self.correct:
+            current_time = pygame.time.get_ticks()
+            for i in range(5):
+                angle = (current_time * 0.01 + i * 72) % 360
+                radius = 20 + math.sin(current_time * 0.01) * 5
+                sparkle_x = self.rect.centerx + math.cos(math.radians(angle)) * radius
+                sparkle_y = self.rect.centery + math.sin(math.radians(angle)) * radius
+                pygame.draw.circle(screen, YELLOW, (int(sparkle_x), int(sparkle_y)), 3)
+
 class Bubble:
     def __init__(self):
         self.x = random.randint(50, SCREEN_WIDTH - 50)
-        self.y = random.randint(50, SCREEN_HEIGHT - 150)  # Keep bubbles away from the bottom
-        self.speed = random.uniform(0.5, 1.5)
-        self.image = bubble_img
-        self.rect = self.image.get_rect(center=(self.x, self.y))
+        self.y = SCREEN_HEIGHT + random.randint(0, 100)
+        self.speed = random.uniform(1, 3)
+        self.size = random.randint(20, 40)
+        self.color = random.choice(BUBBLE_COLORS)
+        self.sparkle = 0
         self.popped = False
-    
+        
+    def check_pop(self, mouse_pos):
+        if not self.popped:
+            # Calculate distance between mouse click and bubble center
+            dx = mouse_pos[0] - self.x
+            dy = mouse_pos[1] - self.y
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            # Check if click was inside bubble
+            if distance <= self.size:
+                self.popped = True
+                # Play pop sound if available
+                if bubble_pop_sound:
+                    try:
+                        bubble_pop_sound.play()
+                    except:
+                        pass
+                return True
+        return False
+        
     def update(self):
         if not self.popped:
-            # Bubbles slowly rise and drift
             self.y -= self.speed
-            self.x += random.uniform(-0.5, 0.5)
+            self.x += math.sin(pygame.time.get_ticks() * 0.001 + self.y * 0.1) * 0.5
+            self.sparkle = (self.sparkle + 1) % 360
             
-            # Wrap around if they go off screen
-            if self.y < -20:
-                self.y = SCREEN_HEIGHT + 20
-                self.x = random.randint(50, SCREEN_WIDTH - 50)
-            
-            self.rect.center = (self.x, self.y)
-    
     def draw(self):
         if not self.popped:
-            screen.blit(self.image, self.rect)
-    
-    def check_pop(self, pos):
-        if not self.popped and self.rect.collidepoint(pos):
-            self.popped = True
-            if bubble_pop_sound:
-                try:
-                    bubble_pop_sound.play()
-                except:
-                    pass
-            return True
-        return False
+            # Draw main bubble
+            pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.size)
+            # Add shine effect
+            shine_pos = (int(self.x + math.cos(self.sparkle * 0.1) * self.size * 0.3),
+                        int(self.y + math.sin(self.sparkle * 0.1) * self.size * 0.3))
+            pygame.draw.circle(screen, (255, 255, 255), shine_pos, self.size // 4)
 
 class Treasure:
     def __init__(self):
@@ -345,6 +534,75 @@ class Coral:
     def check_collision(self, player_rect):
         return self.rect.colliderect(player_rect)
 
+class CelebrationEffect:
+    def __init__(self, x, y):
+        self.particles = []
+        for _ in range(30):
+            angle = random.uniform(0, math.pi * 2)
+            speed = random.uniform(2, 8)
+            color = random.choice(RAINBOW_COLORS)
+            self.particles.append({
+                'x': x,
+                'y': y,
+                'dx': math.cos(angle) * speed,
+                'dy': math.sin(angle) * speed,
+                'color': color,
+                'life': 60
+            })
+    
+    def update(self):
+        for p in self.particles:
+            p['x'] += p['dx']
+            p['y'] += p['dy']
+            p['dy'] += 0.2  # Gravity
+            p['life'] -= 1
+    
+    def draw(self):
+        for p in self.particles:
+            if p['life'] > 0:
+                alpha = min(255, p['life'] * 4)
+                color = (*p['color'], alpha)
+                pygame.draw.circle(screen, color, 
+                                 (int(p['x']), int(p['y'])), 
+                                 3)
+
+    @property
+    def alive(self):
+        return any(p['life'] > 0 for p in self.particles)
+
+class Clue:
+    def __init__(self, x, y, text, creature_hint):
+        self.x = x
+        self.y = y
+        self.text = text
+        self.creature_hint = creature_hint
+        self.collected = False
+        self.rect = pygame.Rect(x-15, y-15, 30, 30)
+        self.is_hovered = False
+        
+    def update(self, mouse_pos):
+        if not self.collected:
+            self.is_hovered = self.rect.collidepoint(mouse_pos)
+    
+    def draw(self):
+        if not self.collected:
+            # Draw glowing effect when hovered
+            if self.is_hovered:
+                glow_radius = 20 + math.sin(pygame.time.get_ticks() * 0.005) * 3
+                pygame.draw.circle(screen, (255, 255, 150), (self.x, self.y), int(glow_radius))
+            
+            pygame.draw.circle(screen, (255, 215, 0), (self.x, self.y), 15)
+            pygame.draw.circle(screen, (0, 0, 0), (self.x, self.y), 15, 2)
+            text = font.render("?", True, BLACK)
+            screen.blit(text, (self.x - text.get_width()//2, self.y - text.get_height()//2))
+            
+            # Show hint text when hovered
+            if self.is_hovered:
+                hint_text = font.render(self.text, True, WHITE)
+                hint_rect = hint_text.get_rect(center=(self.x, self.y - 30))
+                pygame.draw.rect(screen, (0, 0, 0, 128), hint_rect.inflate(20, 10))
+                screen.blit(hint_text, hint_rect)
+
 class Game:
     def __init__(self):
         self.player = Player()
@@ -354,15 +612,42 @@ class Game:
         self.result_message = ""
         self.result_time = 0
         self.clock = pygame.time.Clock()
+        self.safe_margin = 100
+        self.min_creature_distance = 200
         self.creatures = self.create_creatures()
-        self.last_position_update = 0
-        self.show_collision_circles = False  # Toggle for visual debugging
+        self.clues = self.create_clues()
         
-        self.bubbles = [Bubble() for _ in range(15)]  # Create 15 bubbles
-        self.treasures = [Treasure() for _ in range(3)]  # Create 3 treasures
-        self.seashells = [Seashell() for _ in range(5)]  # Create 5 seashells
-        self.corals = [Coral(random.randint(50, SCREEN_WIDTH - 50), 
-                           random.randint(50, SCREEN_HEIGHT - 50)) for _ in range(8)]  # Create 8 coral formations
+        # Add collision circles debug flag
+        self.show_collision_circles = False  # Add this line
+        
+        self.celebration_effects = []
+        
+        # Add ocean currents
+        self.ocean_currents = [
+            {
+                'x': random.randint(0, SCREEN_WIDTH),
+                'y': random.randint(0, SCREEN_HEIGHT),
+                'strength': random.uniform(0.5, 2.0),
+                'radius': random.randint(200, 400)
+            } for _ in range(5)
+        ]
+        
+        # Add collectibles
+        self.bubbles = [Bubble() for _ in range(30)]  # More bubbles
+        self.seashells = [Seashell() for _ in range(10)]
+        self.treasures = [Treasure() for _ in range(5)]
+        
+        # Add score system
+        self.score = 0
+        self.combo_multiplier = 1.0
+        self.last_collect_time = 0
+
+        self.clues = [
+            Clue(300, 200, "Look for splashing near the surface!", "Dolphin"),
+            Clue(500, 400, "Some creatures carry their homes with them.", "Sea Turtle"),
+            # Add more clues
+        ]
+        self.collected_clues = []
         
         self.bubble_count = 0
         self.treasure_count = 0
@@ -385,137 +670,215 @@ class Game:
             except:
                 debug_print("Could not play background music", True)
 
+    def get_random_position(self, existing_positions=None):
+        """Generate a random position that's not too close to existing ones"""
+        if existing_positions is None:
+            existing_positions = []
+            
+        for attempt in range(100):  # Limit attempts to prevent infinite loop
+            x = random.randint(self.safe_margin, SCREEN_WIDTH - self.safe_margin)
+            y = random.randint(self.safe_margin, SCREEN_HEIGHT - self.safe_margin)
+            
+            # Check distance from existing positions
+            valid_position = True
+            for pos in existing_positions:
+                distance = math.sqrt((x - pos[0])**2 + (y - pos[1])**2)
+                if distance < self.min_creature_distance:
+                    valid_position = False
+                    break
+                    
+            if valid_position:
+                return x, y
+                
+        # If we couldn't find a good position, return a fallback
+        return (random.randint(0, SCREEN_WIDTH), 
+                random.randint(0, SCREEN_HEIGHT))
+
     def create_creatures(self):
-        creatures = [
-            Creature(600, 150, dolphin_img, "Dolphin", 
-                    "Which animal is smart and can jump out of water?",
-                    ["Dolphin", "Shark", "Crab"], 0),
-            Creature(200, 450, turtle_img, "Turtle", 
-                    "Which sea creature has a shell?",
-                    ["Jellyfish", "Turtle", "Eel"], 1),
-            Creature(400, 100, starfish_img, "Starfish", 
-                    "How many arms does a starfish usually have?",
-                    ["Three", "Four", "Five"], 2),
-            Creature(700, 400, octopus_img, "Octopus", 
-                    "How many legs does the octopus have?",
-                    ["Six", "Eight", "Ten"], 1),
-            Creature(300, 300, fish_img, "Fish", 
-                    "Can you find the blue and yellow fish?",
-                    ["Yes! Here it is!", "No, I can't see it", "What fish?"], 0)
+        creature_data = [
+            (dolphin_img, "Dolphin", [
+                {
+                    "question": "I'm a friendly creature that loves to jump and play! What am I?",
+                    "answers": ["A happy dolphin", "A grumpy shark", "A dancing crab"],
+                    "correct": 0
+                },
+                {
+                    "question": "What special sound do I use to find my way?",
+                    "answers": ["Barking", "Echolocation", "Humming"],
+                    "correct": 1
+                },
+                {
+                    "question": "What's my favorite thing to do?",
+                    "answers": ["Sleep in the sand", "Jump and flip in the air", "Hide in rocks"],
+                    "correct": 1
+                }
+            ]),
+            (turtle_img, "Sea Turtle", [
+                {
+                    "question": "I carry my home with me wherever I go. Who am I?",
+                    "answers": ["A hermit crab", "A sea turtle", "A snail"],
+                    "correct": 1
+                },
+                {
+                    "question": "What's my favorite food?",
+                    "answers": ["Seaweed", "Jellyfish", "Fish"],
+                    "correct": 1
+                },
+                {
+                    "question": "How do I breathe?",
+                    "answers": ["Through my shell", "I swim to the surface", "Through my flippers"],
+                    "correct": 1
+                }
+            ]),
+            (starfish_img, "Starfish", [
+                {
+                    "question": "I'm a colorful star of the sea! How many arms do I have?",
+                    "answers": ["Three", "Four", "Five"],
+                    "correct": 2
+                },
+                {
+                    "question": "What do I like to eat?",
+                    "answers": ["Tiny sea creatures", "Seaweed", "Sand"],
+                    "correct": 0
+                },
+                {
+                    "question": "What color can I be?",
+                    "answers": ["Only yellow", "Only red", "Many different colors"],
+                    "correct": 2
+                }
+            ]),
+            (octopus_img, "Octopus", [
+                {
+                    "question": "I'm very smart and have lots of arms! Who am I?",
+                    "answers": ["A jellyfish", "An octopus", "A seahorse"],
+                    "correct": 1
+                },
+                {
+                    "question": "How many arms do I have?",
+                    "answers": ["Four", "Six", "Eight"],
+                    "correct": 2
+                },
+                {
+                    "question": "What's my special trick?",
+                    "answers": ["I can change color", "I can fly", "I can walk on land"],
+                    "correct": 0
+                }
+            ]),
+            (fish_img, "Tropical Fish", [
+                {
+                    "question": "I'm small, colorful, and swim in groups! What am I?",
+                    "answers": ["A tropical fish", "A shark", "A whale"],
+                    "correct": 0
+                },
+                {
+                    "question": "What helps me swim?",
+                    "answers": ["My fins", "My legs", "My arms"],
+                    "correct": 0
+                },
+                {
+                    "question": "Where do I like to live?",
+                    "answers": ["Deep dark ocean", "Warm coral reefs", "Cold arctic waters"],
+                    "correct": 1
+                }
+            ])
         ]
+        
+        creatures = []
+        positions = []
+        
+        for img, name, questions in creature_data:
+            x, y = self.get_random_position(positions)
+            positions.append((x, y))
+            creatures.append(Creature(x, y, img, name, questions))
+            
         return creatures
+        
+    def create_clues(self):
+        clues = []
+        positions = [(c.x, c.y) for c in self.creatures]  # Avoid creature positions
+        
+        clue_data = [
+            ("Look for splashing near the surface!", "Dolphin"),
+            ("Some creatures carry their homes with them.", "Sea Turtle"),
+            ("Look for colorful stars in the coral!", "Starfish"),
+            ("Search for clever creatures with many arms!", "Octopus"),
+            ("Watch for bright colors in the reef!", "Tropical Fish")
+        ]
+        
+        for text, creature_hint in clue_data:
+            x, y = self.get_random_position(positions)
+            positions.append((x, y))
+            clues.append(Clue(x, y, text, creature_hint))
+            
+        return clues
 
     def handle_events(self):
-        # Store current mouse position outside the event loop
         mouse_pos = pygame.mouse.get_pos()
-        
-        # Track if any mouse clicks happened this frame
         click_occurred = False
         
         for event in pygame.event.get():
-            if event.type == QUIT:
+            if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            
-            # Track mouse clicks for all states
-            if event.type == MOUSEBUTTONDOWN:
+            elif event.type == MOUSEBUTTONDOWN:
                 click_occurred = True
-                debug_print(f"Mouse click detected at position: {mouse_pos}, current state: {self.state}")
-            
-            # Handle debug key presses
-            if event.type == KEYDOWN:
-                global DEBUG_MODE
                 
-                # R key - Reset game
-                if event.key == K_r:
-                    debug_print("Reset key pressed - restarting game", True)
-                    self.__init__()
+                # Handle creature clicks in EXPLORE state
+                if self.state == EXPLORE:
+                    for creature in self.creatures:
+                        if not creature.visited and creature.can_interact and creature.is_hovered:
+                            self.current_creature = creature
+                            self.state = QUIZ
+                            self.setup_quiz()
+                            break
                 
-                # D key - Toggle debug mode
-                elif event.key == K_d:
-                    DEBUG_MODE = not DEBUG_MODE
-                    debug_print(f"Debug mode {'enabled' if DEBUG_MODE else 'disabled'}", True)
-                    
-                    if DEBUG_MODE:
-                        self.print_debug_info()
+                # Handle quiz state clicks
+                elif self.state == QUIZ:
+                    for i, button in enumerate(self.answer_buttons):
+                        if button.rect.collidepoint(mouse_pos):
+                            # Visual feedback
+                            button.selected = True
+                            self.check_answer(i)
+                            break
                 
-                # F key - Force next state
-                elif event.key == K_f:
-                    old_state = self.state
-                    self.state = (self.state + 1) % 4  # Cycle through states
-                    debug_print(f"Forced state change: {old_state} -> {self.state}", True)
+                # Handle reward state clicks
+                elif self.state == REWARD:
+                    debug_print("Click processed in REWARD state, returning to EXPLORE")
+                    if self.current_creature and not self.current_creature.visited:
+                        self.state = QUIZ
+                        self.setup_quiz()
+                    else:
+                        self.state = EXPLORE
+                        self.current_creature = None
                 
-                # Number keys - Teleport to creatures
-                elif event.key in [K_1, K_2, K_3, K_4, K_5]:
-                    idx = event.key - K_1  # Convert key to index (0-4)
-                    if idx < len(self.creatures):
-                        creature = self.creatures[idx]
-                        old_pos = (self.player.x, self.player.y)
-                        # Position player near the creature
-                        self.player.x = creature.x - 50
-                        self.player.y = creature.y
-                        debug_print(f"Teleported player from {old_pos} to {(self.player.x, self.player.y)} near {creature.name}", True)
-                
-                # S key - Add a star
-                elif event.key == K_s:
-                    self.player.stars += 1
-                    debug_print(f"Added star: {self.player.stars}/{len(self.creatures)}", True)
-                
-                # G key - Go to game over
-                elif event.key == K_g:
-                    debug_print("Going to game over screen", True)
-                    self.state = GAME_OVER
-                    
-                # C key - Toggle collision circles
-                elif event.key == K_c:
-                    self.show_collision_circles = not self.show_collision_circles
-                    debug_print(f"Collision circles {'shown' if self.show_collision_circles else 'hidden'}", True)
-            
-            if self.state == QUIZ:
-                for button in self.answer_buttons:
-                    button.check_hover(mouse_pos)
-                    if click_occurred and button.rect.collidepoint(mouse_pos):
-                        self.check_answer(self.answer_buttons.index(button))
-                        # Consume the click to prevent it from affecting other states
-                        click_occurred = False
-        
-        # Handle reward state clicks outside the event loop to make sure they're detected
-        if self.state == REWARD and click_occurred:
-            debug_print("Click processed in REWARD state, returning to EXPLORE")
-            self.state = EXPLORE
-            # Important: actually reset the current_creature to None
-            self.current_creature = None
-        
-        # Handle game over state clicks
-        elif self.state == GAME_OVER and click_occurred:
-            debug_print("Click processed in GAME_OVER state, restarting game")
-            self.__init__()  # Re-initialize the game
+                # Handle game over state clicks
+                elif self.state == GAME_OVER:
+                    debug_print("Click processed in GAME_OVER state, restarting game")
+                    self.__init__()  # Re-initialize the game
         
         # Handle movement keys only in EXPLORE state
         if self.state == EXPLORE:
             keys = pygame.key.get_pressed()
             dx, dy = 0, 0
-            if keys[K_LEFT]:
+            # Add WASD support alongside arrow keys
+            if keys[K_LEFT] or keys[K_a]:
                 dx = -self.player.speed
-            if keys[K_RIGHT]:
+            if keys[K_RIGHT] or keys[K_d]:
                 dx = self.player.speed
-            if keys[K_UP]:
+            if keys[K_UP] or keys[K_w]:
                 dy = -self.player.speed
-            if keys[K_DOWN]:
+            if keys[K_DOWN] or keys[K_s]:
                 dy = self.player.speed
             
             if dx != 0 or dy != 0:
                 # Only move if actually pressing direction keys
                 self.player.move(dx, dy)
                 
-                # Only log position occasionally to avoid terminal flood
+                # Only log position occasionally
                 current_time = pygame.time.get_ticks()
-                if DEBUG_MODE and current_time - self.last_position_update > 1000:  # Once per second at most
+                if DEBUG_MODE and current_time - self.last_position_update > 1000:
                     debug_print(f"Player moved to: ({self.player.x}, {self.player.y})")
                     self.last_position_update = current_time
-            
-            # Check for creature collisions - only if we're not currently handling one
-            self.check_creature_collisions()
         
         # Handle bubble popping with mouse clicks
         if click_occurred:
@@ -524,63 +887,65 @@ class Game:
                     self.bubble_count += 1
 
     def check_creature_collisions(self):
-        """Separate method to check for collisions with creatures"""
-        if self.state != EXPLORE or self.current_creature is not None:
+        if self.state != EXPLORE:
             return
-            
-        # Only print creature positions in debug mode and not too frequently
-        current_time = pygame.time.get_ticks()
-        if DEBUG_MODE and current_time - last_debug_time > DEBUG_INTERVAL:
-            debug_print("\nCreature positions:")
-            for i, creature in enumerate(self.creatures):
-                debug_print(f"{i}: {creature.name} at ({creature.x}, {creature.y}) - Visited: {creature.visited}")
-            debug_print(f"Player at ({self.player.x}, {self.player.y})")
         
-        # Check for collisions with any unvisited creature
         for creature in self.creatures:
-            if not creature.visited:
-                # Calculate distance-based collision instead of rect-based
-                distance = math.sqrt((self.player.x - creature.x)**2 + (self.player.y - creature.y)**2)
-                # Use a more generous collision radius
-                collision_radius = max(creature.image.get_width(), creature.image.get_height()) / 2
+            if not creature.visited and creature.can_interact:
+                if creature.is_hovered:
+                    # Show interaction hint
+                    hint_text = "Swim closer to interact!"
+                    if creature.can_interact:
+                        hint_text = "Click to interact!"  # Changed from "Press SPACE"
                 
-                # Only log distances in debug mode and not too frequently
-                if DEBUG_MODE and current_time - last_debug_time > DEBUG_INTERVAL:
-                    debug_print(f"Distance to {creature.name}: {distance}, collision radius: {collision_radius}")
-                
-                if distance < collision_radius + 30:  # Add 30px buffer for easier collision
-                    debug_print(f"Collision with creature: {creature.name} (distance-based)", True)
-                    self.current_creature = creature
-                    self.state = QUIZ
-                    self.setup_quiz()
-                    return
+                    text_surface = font.render(hint_text, True, WHITE)
+                    text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, 50))
+                    screen.blit(text_surface, text_rect)
 
     def setup_quiz(self):
-        # Create answer buttons
-        self.answer_buttons = []
-        for i, answer in enumerate(self.current_creature.answers):
-            button = Button(SCREEN_WIDTH // 2 - 125, 350 + i * 60, 250, 50, answer, (200, 200, 255))
-            self.answer_buttons.append(button)
+        current_question = self.current_creature.get_next_question()
+        if current_question:
+            self.answer_buttons = []
+            for i, answer in enumerate(current_question["answers"]):
+                button = AnimatedButton(
+                    SCREEN_WIDTH // 2 - 125,
+                    350 + i * 60,
+                    250, 50,
+                    answer,
+                    (200, 200, 255)
+                )
+                self.answer_buttons.append(button)
+            return True
+        return False
 
     def check_answer(self, answer_index):
-        if answer_index == self.current_creature.correct_answer:
-            self.result_message = "Correct! Well done!"
+        current_question = self.current_creature.questions[
+            self.current_creature.current_question_index - 1
+        ]
+        
+        if answer_index == current_question["correct"]:
+            self.celebration_effects.append(
+                CelebrationEffect(self.player.x, self.player.y)
+            )
+            
+            # Check if all questions are answered
+            if self.current_creature.current_question_index >= len(self.current_creature.questions):
+                self.current_creature.discovered = True
+                self.current_creature.visited = True
+                self.player.stars += 1
+                self.result_message = f"Congratulations! You've discovered the {self.current_creature.name}!"
+            else:
+                self.result_message = "Correct! Here's another question..."
+                self.state = QUIZ
+                self.setup_quiz()
+                return
+                
             if correct_sound:
-                try:
-                    correct_sound.play()
-                except:
-                    pass
-            self.player.stars += 1
-            self.current_creature.visited = True
-            debug_print(f"Correct answer! Stars: {self.player.stars}/{len(self.creatures)}", True)
+                correct_sound.play()
         else:
-            self.result_message = "Try again! That's not right."
+            self.result_message = "Not quite! Try again..."
             if wrong_sound:
-                try:
-                    wrong_sound.play()
-                except:
-                    pass
-            debug_print("Incorrect answer", True)
+                wrong_sound.play()
         
         self.state = REWARD
         self.result_time = pygame.time.get_ticks()
@@ -633,9 +998,44 @@ class Game:
             visited_count = sum(1 for creature in self.creatures if creature.visited)
             debug_print(f"Current state: {self.state}, Stars: {self.player.stars}, Visited creatures: {visited_count}/{len(self.creatures)}")
 
+        # Update celebration effects
+        for effect in self.celebration_effects[:]:  # Create a copy of the list for iteration
+            effect.update()
+            if not effect.alive:
+                self.celebration_effects.remove(effect)
+
         # Update all bubbles
         for bubble in self.bubbles:
             bubble.update()
+        
+        # Update clues
+        mouse_pos = pygame.mouse.get_pos()
+        for clue in self.clues:
+            clue.update(mouse_pos)
+    
+        # Update creatures with player position
+        for creature in self.creatures:
+            creature.update((self.player.x, self.player.y), mouse_pos)
+        
+        # Apply ocean currents to player movement
+        if self.state == EXPLORE:
+            for current in self.ocean_currents:
+                dist = math.sqrt(
+                    (self.player.x - current['x'])**2 + 
+                    (self.player.y - current['y'])**2
+                )
+                if dist < current['radius']:
+                    # Calculate current effect
+                    force = (1 - dist/current['radius']) * current['strength']
+                    angle = math.atan2(self.player.y - current['y'], 
+                                     self.player.x - current['x'])
+                    self.player.x += math.cos(angle) * force
+                    self.player.y += math.sin(angle) * force
+        
+        # Update combo system
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_collect_time > 5000:  # Reset combo after 5 seconds
+            self.combo_multiplier = 1.0
 
     def draw(self):
         # Draw background
@@ -669,6 +1069,18 @@ class Game:
         star_text = font.render(f"Stars: {self.player.stars}/{len(self.creatures)}", True, WHITE)
         screen.blit(star_text, (20, 20))
         
+        # Draw clues
+        for clue in self.clues:
+            clue.draw()
+        
+        # Draw collected clues panel
+        if self.collected_clues:
+            clue_panel = pygame.Rect(10, 50, 200, 30 * len(self.collected_clues))
+            pygame.draw.rect(screen, (255, 255, 255, 180), clue_panel)
+            for i, clue in enumerate(self.collected_clues):
+                clue_text = small_font.render(clue, True, BLACK)
+                screen.blit(clue_text, (15, 55 + i * 30))
+        
         # Draw quiz if in quiz state
         if self.state == QUIZ:
             # Semi-transparent overlay
@@ -685,12 +1097,16 @@ class Game:
             name_text = large_font.render(self.current_creature.name, True, BLACK)
             screen.blit(name_text, (SCREEN_WIDTH // 2 - name_text.get_width() // 2, 170))
             
-            # Draw question
-            question_text = font.render(self.current_creature.question, True, BLACK)
+            # Get current question text from questions list
+            current_question = self.current_creature.questions[
+                self.current_creature.current_question_index - 1
+            ]
+            question_text = font.render(current_question["question"], True, BLACK)
             screen.blit(question_text, (SCREEN_WIDTH // 2 - question_text.get_width() // 2, 220))
             
-            # Draw answer buttons
+            # Update and draw answer buttons
             for button in self.answer_buttons:
+                button.update()
                 button.draw()
         
         # Draw reward message if in reward state
@@ -700,34 +1116,43 @@ class Game:
             overlay.fill((0, 0, 0, 128))
             screen.blit(overlay, (0, 0))
             
-            # Make the reward box larger and more visible
-            result_box = pygame.Rect(SCREEN_WIDTH // 2 - 250, SCREEN_HEIGHT // 2 - 100, 500, 200)
+            # Make the box even larger and add text wrapping
+            result_box = pygame.Rect(SCREEN_WIDTH // 2 - 300, SCREEN_HEIGHT // 2 - 200, 600, 400)
+            
+            # Draw box and shadow
+            shadow_box = result_box.copy()
+            shadow_box.x += 5
+            shadow_box.y += 5
+            pygame.draw.rect(screen, (100, 100, 100), shadow_box, border_radius=15)
             pygame.draw.rect(screen, WHITE, result_box, border_radius=15)
-            pygame.draw.rect(screen, (0, 0, 0), result_box, 3, border_radius=15)  # Add thicker border
             
-            # Split result message for better display
-            result_lines = self.result_message.split('\n')
-            y_offset = SCREEN_HEIGHT // 2 - 50
+            # Word wrap the message
+            words = self.result_message.split()
+            lines = []
+            current_line = []
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                test_surface = large_font.render(test_line, True, BLACK)
+                if test_surface.get_width() <= result_box.width - 40:
+                    current_line.append(word)
+                else:
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+            lines.append(' '.join(current_line))
             
-            for line in result_lines:
-                result_text = font.render(line, True, BLACK)
-                screen.blit(result_text, (SCREEN_WIDTH // 2 - result_text.get_width() // 2, y_offset))
-                y_offset += 30
+            # Draw wrapped text
+            y_offset = result_box.top + 30
+            for line in lines:
+                text_surface = large_font.render(line, True, BLACK)
+                x = SCREEN_WIDTH // 2 - text_surface.get_width() // 2
+                screen.blit(text_surface, (x, y_offset))
+                y_offset += 40
             
-            # Add a more visible and explicit continue prompt with animation
-            continue_text = font.render("Click anywhere or press SPACE to continue", True, (200, 0, 0))
-            # Make the text pulse for visibility
-            pulse = (math.sin(pygame.time.get_ticks() * 0.01) + 1) * 0.5  # 0 to 1 pulsing value
-            pulse_scale = 1.0 + (0.1 * pulse)
-            pulse_font = pygame.font.SysFont('Arial', int(24 * pulse_scale))
-            continue_text = pulse_font.render("Click anywhere or press SPACE to continue", True, (200, 0, 0))
-            screen.blit(continue_text, (SCREEN_WIDTH // 2 - continue_text.get_width() // 2, SCREEN_HEIGHT // 2 + 80))
-            
+            # Draw stars if correct
             if "Correct" in self.result_message:
-                # Draw stars for visual reward
+                star_y = y_offset + 60
                 for i in range(5):
                     star_x = SCREEN_WIDTH // 2 - 100 + i * 50
-                    star_y = SCREEN_HEIGHT // 2 + 50  # Move stars down to accommodate text
                     pygame.draw.polygon(screen, YELLOW, [
                         (star_x, star_y - 15),
                         (star_x + 5, star_y - 5),
@@ -740,7 +1165,20 @@ class Game:
                         (star_x - 15, star_y - 5),
                         (star_x - 5, star_y - 5)
                     ])
+            
+            # Draw continue prompt with gentle animation
+            continue_y = result_box.bottom - 60  # Position inside the box
+            pulse = (math.sin(pygame.time.get_ticks() * 0.005) + 1) * 0.5  # Slower, gentler pulse
+            continue_color = (0, 100, 200)  # Friendly blue color
+            pulse_font = pygame.font.SysFont('Arial', int(24 + pulse * 4))  # Smaller pulse range
+            continue_text = pulse_font.render("Click anywhere or press SPACE to continue", True, continue_color)
+            continue_x = SCREEN_WIDTH // 2 - continue_text.get_width() // 2
+            screen.blit(continue_text, (continue_x, continue_y))
         
+        # Draw celebration effects
+        for effect in self.celebration_effects:
+            effect.draw()
+
         # Draw game over screen
         if self.state == GAME_OVER:
             # Semi-transparent overlay
@@ -762,11 +1200,6 @@ class Game:
             
             restart_text = font.render("Click anywhere to play again!", True, BLACK)
             screen.blit(restart_text, (SCREEN_WIDTH // 2 - restart_text.get_width() // 2, SCREEN_HEIGHT // 2 + 75))
-        
-        # Draw debug status with D key info
-        debug_status = "Debug Mode: OFF (press D to enable)" if not DEBUG_MODE else "Debug Mode: ON (press D to disable)"
-        debug_status_text = font.render(debug_status, True, (200, 200, 200))
-        screen.blit(debug_status_text, (SCREEN_WIDTH - debug_status_text.get_width() - 10, 10))
         
         pygame.display.flip()
 
